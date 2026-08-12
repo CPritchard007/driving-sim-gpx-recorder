@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   Map,
   NavigationControl,
@@ -23,6 +23,17 @@ const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12'
 const TRACK_SOURCE = 'gpx-track'
 const CHASE_PITCH = 62
 const CHASE_ZOOM = 18
+const TOKEN_STORAGE_KEY = 'gpx-drive.mapboxAccessToken'
+
+function resolveMapboxToken(): string {
+  const fromEnv = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ?? ''
+  if (fromEnv) return fromEnv
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY)?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
 
 export type HudSnapshot = {
   speedKmh: number
@@ -120,13 +131,35 @@ export function DrivingMap({
   const onHudUpdateRef = useRef(onHudUpdate)
   const readInputRef = useRef(readDriveInput)
 
-  const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ?? ''
+  const [token, setToken] = useState(resolveMapboxToken)
+  const [tokenDraft, setTokenDraft] = useState('')
+  const [tokenError, setTokenError] = useState<string | null>(null)
 
   recordingRef.current = recording
   onToggleRecordRef.current = onToggleRecord
   onVehicleSampleRef.current = onVehicleSample
   onHudUpdateRef.current = onHudUpdate
   readInputRef.current = readDriveInput
+
+  const saveToken = (event: FormEvent) => {
+    event.preventDefault()
+    const next = tokenDraft.trim()
+    if (!next) {
+      setTokenError('Paste a Mapbox public access token.')
+      return
+    }
+    if (!next.startsWith('pk.')) {
+      setTokenError('Use a public token that starts with pk.')
+      return
+    }
+    try {
+      localStorage.setItem(TOKEN_STORAGE_KEY, next)
+    } catch {
+      // Still allow in-session use if storage is blocked.
+    }
+    setTokenError(null)
+    setToken(next)
+  }
 
   useEffect(() => {
     if (!token || !containerRef.current || mapRef.current) return
@@ -296,8 +329,46 @@ export function DrivingMap({
         <div className="map-missing-token-card">
           <p className="map-missing-token-title">Mapbox token required</p>
           <p>
-            Set <code>VITE_MAPBOX_ACCESS_TOKEN</code> in a <code>.env</code> file
-            (see <code>.env.example</code>), then restart the dev server.
+            Paste a public Mapbox token below, or set{' '}
+            <code>VITE_MAPBOX_ACCESS_TOKEN</code> in a <code>.env</code> file
+            for local development.
+          </p>
+          <form className="map-token-form" onSubmit={saveToken}>
+            <label className="map-token-label" htmlFor="mapbox-token">
+              Access token
+            </label>
+            <input
+              id="mapbox-token"
+              className="map-token-input"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="pk.eyJ1Ijoi..."
+              value={tokenDraft}
+              onChange={(event) => {
+                setTokenDraft(event.target.value)
+                if (tokenError) setTokenError(null)
+              }}
+            />
+            {tokenError ? (
+              <p className="map-token-error" role="alert">
+                {tokenError}
+              </p>
+            ) : null}
+            <button className="btn btn-rec" type="submit">
+              Save token
+            </button>
+          </form>
+          <p className="map-token-hint">
+            Create a token at{' '}
+            <a
+              href="https://account.mapbox.com/access-tokens/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              account.mapbox.com
+            </a>
+            . It stays in this browser only.
           </p>
         </div>
       </div>
