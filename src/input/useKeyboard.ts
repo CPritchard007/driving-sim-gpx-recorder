@@ -19,6 +19,7 @@ const initial: KeyState = {
   record: false,
 }
 
+/** GTA V-style keyboard: W/S gas/brake, A/D steer, Space handbrake. */
 export function useKeyboard() {
   const keys = useRef<KeyState>({ ...initial })
   const recordEdge = useRef(false)
@@ -74,14 +75,15 @@ export function useKeyboard() {
     }
   }, [])
 
-  const readInput = useCallback((): DriveInput & { toggleRecord: boolean } => {
+  const readInput = useCallback((): DriveInput & {
+    toggleRecord: boolean
+    lookX: number
+    lookY: number
+  } => {
     const k = keys.current
     let steer = 0
     if (k.left) steer -= 1
     if (k.right) steer += 1
-
-    const throttle = k.up ? 1 : 0
-    const brake = k.down ? 1 : 0
 
     let toggleRecord = false
     if (k.record && !recordEdge.current) {
@@ -91,10 +93,12 @@ export function useKeyboard() {
 
     return {
       steer,
-      throttle,
-      brake,
+      throttle: k.up ? 1 : 0,
+      brake: k.down ? 1 : 0,
       handbrake: k.handbrake,
       toggleRecord,
+      lookX: 0,
+      lookY: 0,
     }
   }, [])
 

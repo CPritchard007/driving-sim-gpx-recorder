@@ -80,13 +80,12 @@ export function Hud({
 
       <aside className="hud-legend">
         <p>
-          <kbd>W</kbd>/<kbd>↑</kbd> throttle · <kbd>S</kbd>/<kbd>↓</kbd> brake ·{' '}
-          <kbd>A</kbd>/<kbd>D</kbd> steer · <kbd>Space</kbd> handbrake ·{' '}
-          <kbd>R</kbd> record
+          <kbd>W</kbd> accelerate · <kbd>S</kbd> brake/reverse · <kbd>A</kbd>/
+          <kbd>D</kbd> steer · <kbd>Space</kbd> handbrake · <kbd>R</kbd> record
         </p>
         <p>
-          Pad: left stick steer · RT throttle · LT brake · A handbrake · Start
-          record
+          Pad (GTA): LS steer · RT accelerate · LT brake · A handbrake · RS look
+          · Start record
         </p>
         <p>Click the map to relocate (when not recording).</p>
       </aside>

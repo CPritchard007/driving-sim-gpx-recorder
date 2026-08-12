@@ -17,10 +17,13 @@ import {
 } from './map/DrivingMap'
 import { Hud } from './ui/Hud'
 
-function mergeInput(
-  pad: DriveInput & { toggleRecord: boolean },
-  keys: DriveInput & { toggleRecord: boolean },
-): DriveInput & { toggleRecord: boolean } {
+type DriveControls = DriveInput & {
+  toggleRecord: boolean
+  lookX: number
+  lookY: number
+}
+
+function mergeInput(pad: DriveControls, keys: DriveControls): DriveControls {
   const padActive =
     Math.abs(pad.steer) > 0.01 ||
     pad.throttle > 0.01 ||
@@ -33,6 +36,8 @@ function mergeInput(
     brake: Math.max(pad.brake, keys.brake),
     handbrake: pad.handbrake || keys.handbrake,
     toggleRecord: pad.toggleRecord || keys.toggleRecord,
+    lookX: pad.lookX,
+    lookY: pad.lookY,
   }
 }
 

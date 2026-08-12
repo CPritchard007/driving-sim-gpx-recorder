@@ -32,14 +32,14 @@ export type VehicleTunables = {
 }
 
 export const DEFAULT_TUNABLES: VehicleTunables = {
-  maxSpeed: 45, // ~162 km/h
-  maxReverse: 12,
-  accel: 18,
-  brakeForce: 28,
+  maxSpeed: 60 / 3.6, // 60 km/h
+  maxReverse: 12 / 3.6, // ~12 km/h reverse
+  accel: 40,
+  brakeForce: 36,
   coastDrag: 2.5,
   steerRate: 95, // deg/s at full steer, low speed
   maxSteerAtSpeed: 0.35, // fraction of steerRate retained at max speed
-  grip: 8,
+  grip: 14,
   handbrakeGrip: 1.2,
   handbrakeYawBoost: 1.8,
 }

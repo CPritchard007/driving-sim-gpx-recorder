@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DriveInput } from '../drive/arcadeVehicle'
 
-const DEADZONE = 0.15
+const DEADZONE = 0.12
 
 function applyDeadzone(v: number, dz = DEADZONE): number {
   if (Math.abs(v) < dz) return 0
@@ -21,6 +21,7 @@ export type GamepadStatus = {
   index: number | null
 }
 
+/** GTA V-style pad: LS steer, RT gas, LT brake/reverse, A handbrake. */
 export function useGamepad() {
   const [status, setStatus] = useState<GamepadStatus>({
     connected: false,
@@ -67,18 +68,23 @@ export function useGamepad() {
     }
   }, [])
 
-  const readInput = useCallback((): DriveInput & { toggleRecord: boolean } => {
+  const readInput = useCallback((): DriveInput & {
+    toggleRecord: boolean
+    lookX: number
+    lookY: number
+  } => {
     const empty = {
       steer: 0,
       throttle: 0,
       brake: 0,
       handbrake: false,
       toggleRecord: false,
+      lookX: 0,
+      lookY: 0,
     }
 
     let idx = indexRef.current
     if (idx === null) {
-      // Discover pad after first button press (browsers often delay until then)
       const any = Array.from(navigator.getGamepads()).find((p) => p)
       if (!any) return empty
       indexRef.current = any.index
@@ -89,16 +95,21 @@ export function useGamepad() {
     const pad = navigator.getGamepads()[idx]
     if (!pad) return empty
 
+    // Left stick X — steer
     const steer = applyDeadzone(pad.axes[0] ?? 0)
-    let throttle = buttonValue(pad.buttons[7])
-    let brake = buttonValue(pad.buttons[6])
 
-    if (throttle === 0 && pad.buttons[12]?.pressed) throttle = 1
-    if (brake === 0 && pad.buttons[13]?.pressed) brake = 1
+    // Right stick — look (GTA camera)
+    const lookX = applyDeadzone(pad.axes[2] ?? 0)
+    const lookY = applyDeadzone(pad.axes[3] ?? 0)
 
-    const handbrake =
-      !!pad.buttons[0]?.pressed || !!pad.buttons[1]?.pressed
+    // RT = accelerate, LT = brake / reverse (standard gamepad mapping)
+    const throttle = buttonValue(pad.buttons[7])
+    const brake = buttonValue(pad.buttons[6])
 
+    // A / Cross — handbrake (GTA V)
+    const handbrake = !!pad.buttons[0]?.pressed
+
+    // Menu / Start — toggle record
     const startPressed = !!pad.buttons[9]?.pressed
     let toggleRecord = false
     if (startPressed && !recordEdgeRef.current) {
@@ -106,7 +117,7 @@ export function useGamepad() {
     }
     recordEdgeRef.current = startPressed
 
-    return { steer, throttle, brake, handbrake, toggleRecord }
+    return { steer, throttle, brake, handbrake, toggleRecord, lookX, lookY }
   }, [])
 
   return { status, readInput }

@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import {
+  Map,
+  NavigationControl,
+  type GeoJSONSource,
+  type MapMouseEvent,
+} from 'mapbox-gl'
+import 'mapbox-gl/dist/mapbox-gl.css'
 import {
   createVehicle,
   speedKmh,
@@ -9,9 +14,15 @@ import {
   type VehicleState,
 } from '../drive/arcadeVehicle'
 import type { TrackPoint } from '../gpx/recorder'
+import { createCarLayer, type CarLayerApi } from './carLayer'
 
-/** Downtown San Francisco — good coverage for a demo start. */
-export const DEFAULT_START = { lat: 37.7749, lon: -122.4194, heading: 0 }
+/** Detroit — Windsor Tunnel (US portal / Jefferson Ave). */
+export const DEFAULT_START = { lat: 42.32856, lon: -83.04205, heading: 175 }
+
+const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12'
+const TRACK_SOURCE = 'gpx-track'
+const CHASE_PITCH = 62
+const CHASE_ZOOM = 18
 
 export type HudSnapshot = {
   speedKmh: number
@@ -21,7 +32,11 @@ export type HudSnapshot = {
 }
 
 type Props = {
-  readDriveInput: () => DriveInput & { toggleRecord: boolean }
+  readDriveInput: () => DriveInput & {
+    toggleRecord: boolean
+    lookX: number
+    lookY: number
+  }
   recording: boolean
   trackPoints: TrackPoint[]
   onToggleRecord: () => void
@@ -31,13 +46,54 @@ type Props = {
   relocateTo: { lat: number; lon: number } | null
 }
 
-function makeCarIcon(headingDeg: number): L.DivIcon {
-  return L.divIcon({
-    className: 'car-leaflet-icon',
-    html: `<div class="car-marker" style="transform: rotate(${headingDeg}deg)"><div class="car-marker-body"></div></div>`,
-    iconSize: [28, 40],
-    iconAnchor: [14, 20],
-  })
+function emptyLine(): GeoJSON.Feature<GeoJSON.LineString> {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'LineString', coordinates: [] },
+  }
+}
+
+function addBuildings(map: Map) {
+  if (map.getLayer('3d-buildings')) return
+  const layers = map.getStyle()?.layers
+  const labelLayerId = layers?.find(
+    (l) => l.type === 'symbol' && l.layout?.['text-field'],
+  )?.id
+
+  map.addLayer(
+    {
+      id: '3d-buildings',
+      source: 'composite',
+      'source-layer': 'building',
+      filter: ['==', 'extrude', 'true'],
+      type: 'fill-extrusion',
+      minzoom: 14,
+      paint: {
+        'fill-extrusion-color': '#aaa',
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0,
+          14.05,
+          ['get', 'height'],
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          14,
+          0,
+          14.05,
+          ['get', 'min_height'],
+        ],
+        'fill-extrusion-opacity': 0.85,
+      },
+    },
+    labelLayerId,
+  )
 }
 
 export function DrivingMap({
@@ -51,9 +107,8 @@ export function DrivingMap({
   relocateTo,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<L.Map | null>(null)
-  const markerRef = useRef<L.Marker | null>(null)
-  const trackRef = useRef<L.Polyline | null>(null)
+  const mapRef = useRef<Map | null>(null)
+  const carRef = useRef<CarLayerApi | null>(null)
   const vehicleRef = useRef<VehicleState>(
     createVehicle(DEFAULT_START.lat, DEFAULT_START.lon, DEFAULT_START.heading),
   )
@@ -76,60 +131,54 @@ export function DrivingMap({
   useEffect(() => {
     if (!token || !containerRef.current || mapRef.current) return
 
-    const map = L.map(containerRef.current, {
-      zoomControl: false,
-      attributionControl: true,
-    }).setView([DEFAULT_START.lat, DEFAULT_START.lon], 16)
+    const map = new Map({
+      container: containerRef.current,
+      style: MAP_STYLE,
+      center: [DEFAULT_START.lon, DEFAULT_START.lat],
+      zoom: CHASE_ZOOM,
+      pitch: CHASE_PITCH,
+      bearing: DEFAULT_START.heading,
+      maxPitch: 80,
+      antialias: true,
+      accessToken: token,
+    })
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
+    map.addControl(
+      new NavigationControl({ visualizePitch: true }),
+      'bottom-right',
+    )
 
-    L.tileLayer(
-      `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}@2x?access_token=${token}`,
-      {
-        tileSize: 512,
-        zoomOffset: -1,
-        maxZoom: 22,
-        attribution:
-          '© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      },
-    ).addTo(map)
+    const car = createCarLayer({
+      lon: DEFAULT_START.lon,
+      lat: DEFAULT_START.lat,
+      headingDeg: DEFAULT_START.heading,
+    })
+    carRef.current = car
 
-    const marker = L.marker([DEFAULT_START.lat, DEFAULT_START.lon], {
-      icon: makeCarIcon(DEFAULT_START.heading),
-      interactive: false,
-      keyboard: false,
-    }).addTo(map)
-
-    const track = L.polyline([], {
-      color: '#e85d04',
-      weight: 4,
-      opacity: 0.9,
-      lineJoin: 'round',
-      lineCap: 'round',
-    }).addTo(map)
-
-    markerRef.current = marker
-    trackRef.current = track
-    mapRef.current = map
-
-    map.on('click', (e: L.LeafletMouseEvent) => {
+    map.on('click', (e: MapMouseEvent) => {
       if (recordingRef.current) return
       vehicleRef.current = createVehicle(
-        e.latlng.lat,
-        e.latlng.lng,
+        e.lngLat.lat,
+        e.lngLat.lng,
         vehicleRef.current.headingDeg,
       )
     })
 
-    // Wait until Leaflet has a real size, then start the sim.
-    const startSim = () => {
-      map.invalidateSize()
-      map.setView([DEFAULT_START.lat, DEFAULT_START.lon], 16, {
-        animate: false,
+    mapRef.current = map
+
+    const chase = (
+      v: VehicleState,
+      lookX: number,
+      lookY: number,
+    ) => {
+      // Right stick look — GTA-style orbit around chase bearing/pitch
+      const bearing = v.headingDeg + lookX * 55
+      const pitch = Math.min(80, Math.max(35, CHASE_PITCH - lookY * 25))
+      map.jumpTo({
+        center: [v.lon, v.lat],
+        bearing,
+        pitch,
       })
-      cancelAnimationFrame(rafRef.current)
-      lastTimeRef.current = 0
-      rafRef.current = requestAnimationFrame(loop)
     }
 
     let frame = 0
@@ -144,14 +193,16 @@ export function DrivingMap({
       const raw = readInputRef.current()
       if (raw.toggleRecord) onToggleRecordRef.current()
 
-      const input: DriveInput = {
-        steer: raw.steer,
-        throttle: raw.throttle,
-        brake: raw.brake,
-        handbrake: raw.handbrake,
-      }
-
-      vehicleRef.current = stepVehicle(vehicleRef.current, input, dt)
+      vehicleRef.current = stepVehicle(
+        vehicleRef.current,
+        {
+          steer: raw.steer,
+          throttle: raw.throttle,
+          brake: raw.brake,
+          handbrake: raw.handbrake,
+        },
+        dt,
+      )
       const v = vehicleRef.current
 
       onVehicleSampleRef.current(v.lat, v.lon)
@@ -162,47 +213,71 @@ export function DrivingMap({
         headingDeg: v.headingDeg,
       })
 
-      marker.setLatLng([v.lat, v.lon])
-      const el = marker.getElement()?.querySelector(
-        '.car-marker',
-      ) as HTMLElement | null
-      if (el) el.style.transform = `rotate(${v.headingDeg}deg)`
+      car.setPose({ lon: v.lon, lat: v.lat, headingDeg: v.headingDeg })
 
       frame += 1
-      if (frame % 3 === 0) {
-        const center = map.getCenter()
-        const dist = map.distance(center, L.latLng(v.lat, v.lon))
-        if (dist > 2) {
-          map.panTo([v.lat, v.lon], { animate: false, noMoveStart: true })
-        }
-      }
+      if (frame % 2 === 0) chase(v, raw.lookX, raw.lookY)
 
       rafRef.current = requestAnimationFrame(loop)
     }
 
-    map.whenReady(() => {
-      window.setTimeout(startSim, 50)
+    map.on('style.load', () => {
+      addBuildings(map)
+
+      if (!map.getSource(TRACK_SOURCE)) {
+        map.addSource(TRACK_SOURCE, { type: 'geojson', data: emptyLine() })
+        map.addLayer({
+          id: 'gpx-line',
+          type: 'line',
+          source: TRACK_SOURCE,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#e85d04',
+            'line-width': 5,
+            'line-opacity': 0.9,
+          },
+        })
+      }
+
+      if (!map.getLayer(car.layer.id)) {
+        map.addLayer(car.layer)
+      }
+
+      map.resize()
+      lastTimeRef.current = 0
+      rafRef.current = requestAnimationFrame(loop)
     })
-    const resizeTimer = window.setTimeout(() => {
-      map.invalidateSize()
-    }, 250)
+
+    map.on('error', (e) => {
+      console.error('Mapbox error:', e.error ?? e)
+    })
 
     return () => {
-      window.clearTimeout(resizeTimer)
       cancelAnimationFrame(rafRef.current)
+      carRef.current = null
       map.remove()
-      markerRef.current = null
-      trackRef.current = null
       mapRef.current = null
       lastTimeRef.current = 0
     }
   }, [token])
 
   useEffect(() => {
-    const track = trackRef.current
-    if (!track) return
-    const latlngs = trackPoints.map((p) => L.latLng(p.lat, p.lon))
-    track.setLatLngs(latlngs)
+    const map = mapRef.current
+    if (!map?.getSource(TRACK_SOURCE)) return
+    const coords = trackPoints.map((p) => [p.lon, p.lat] as [number, number])
+    ;(map.getSource(TRACK_SOURCE) as GeoJSONSource).setData({
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'LineString',
+        coordinates:
+          coords.length >= 2
+            ? coords
+            : coords.length === 1
+              ? [coords[0], coords[0]]
+              : [],
+      },
+    })
   }, [trackPoints])
 
   useEffect(() => {

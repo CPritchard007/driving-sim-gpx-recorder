@@ -48,16 +48,13 @@ body,
   z-index: 0;
 }
 
-.map-root .leaflet-container {
-  width: 100%;
-  height: 100%;
-  background: #d8dce3;
-  font: inherit;
+.map-root .mapboxgl-canvas {
+  outline: none;
 }
 
-.car-leaflet-icon {
-  background: transparent !important;
-  border: none !important;
+.mapboxgl-ctrl-bottom-right {
+  margin-bottom: 12px;
+  margin-right: 12px;
 }
 
 .map-missing-token {
@@ -87,34 +84,6 @@ body,
 .map-missing-token code {
   font-size: 0.9em;
   color: var(--gold);
-}
-
-.car-marker {
-  width: 28px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.car-marker-body {
-  width: 18px;
-  height: 32px;
-  background: linear-gradient(180deg, #ffb703 0%, #e85d04 100%);
-  border: 2px solid #0d1b2a;
-  border-radius: 4px 4px 6px 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-  clip-path: polygon(50% 0%, 100% 28%, 100% 100%, 0% 100%, 0% 28%);
-}
-
-.map-root .leaflet-container {
-  outline: none;
-}
-
-.leaflet-bottom.leaflet-right {
-  margin-bottom: 12px;
-  margin-right: 12px;
 }
 
 .hud {
