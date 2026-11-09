@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { parseGpx, type ImportedGpx } from './gpx/importer'
 import type { DriveInput } from './drive/arcadeVehicle'
 import {
   createRecorder,
@@ -57,6 +58,10 @@ export default function App() {
   })
   const lastHudUiRef = useRef(0)
 
+  const [importedGpx, setImportedGpx] = useState<ImportedGpx | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+
   const [relocateToken, setRelocateToken] = useState(0)
   const [relocateTo, setRelocateTo] = useState<{
     lat: number
@@ -95,12 +100,32 @@ export default function App() {
     downloadGpx(recorderRef.current.points)
   }, [])
 
+  const onUpload = async (file: File) => {
+    if (recorderRef.current.recording || importing) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const imported = parseGpx(await file.text(), file.name)
+      if (recorderRef.current.recording) {
+        throw new Error('Stop recording before uploading a GPX file.')
+      }
+      setImportedGpx(imported)
+      posRef.current = imported.start
+      setRelocateTo(imported.start)
+      setRelocateToken((n) => n + 1)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Unable to read this GPX file.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const onReset = useCallback(() => {
     if (recorderRef.current.recording) return
-    setRelocateTo({ lat: DEFAULT_START.lat, lon: DEFAULT_START.lon })
+    setRelocateTo(importedGpx?.start ?? { lat: DEFAULT_START.lat, lon: DEFAULT_START.lon })
     setRelocateToken((n) => n + 1)
     setRecorder(createRecorder())
-  }, [])
+  }, [importedGpx])
 
   return (
     <div className="app">
@@ -108,6 +133,7 @@ export default function App() {
         readDriveInput={readDriveInput}
         recording={recorder.recording}
         trackPoints={recorder.points}
+        importedGpx={importedGpx}
         onToggleRecord={onToggleRecord}
         onVehicleSample={onVehicleSample}
         onHudUpdate={onHudUpdate}
@@ -123,6 +149,10 @@ export default function App() {
         onToggleRecord={onToggleRecord}
         onDownload={onDownload}
         onReset={onReset}
+        onUpload={onUpload}
+        importing={importing}
+        importedName={importedGpx?.name ?? null}
+        importError={importError}
       />
     </div>
   )

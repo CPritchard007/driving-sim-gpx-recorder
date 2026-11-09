@@ -333,3 +333,81 @@ body,
     font-size: 3rem;
   }
 }
+
+.map-tools {
+  position: absolute;
+  top: clamp(1rem, 3vw, 2rem);
+  right: clamp(1rem, 3vw, 2rem);
+  width: min(340px, calc(100% - 2rem));
+  z-index: 3;
+}
+
+.location-search-form {
+  display: flex;
+  overflow: hidden;
+  background: var(--paper);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.location-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.location-search-form button {
+  border: 0;
+  background: var(--ink-soft);
+  color: var(--paper);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.location-search-form button:disabled { opacity: 0.6; cursor: default; }
+.map-tools :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.search-results, .search-message, .place-card {
+  margin: 8px 0 0;
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+.search-results { padding: 4px; list-style: none; max-height: 40vh; overflow-y: auto; }
+.search-results button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.search-results button:hover { background: #e9e2d6; }
+.search-results span { opacity: 0.7; font-size: 12px; }
+.search-message, .place-card { padding: 14px; font-size: 13px; }
+.place-card-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.place-card-heading strong { overflow-wrap: anywhere; }
+.dismiss-selection { border: 0; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; color: var(--ink); }
+.place-card p { margin: 6px 0; color: var(--ink-soft); font-size: 12px; }
+.place-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+.place-card .btn, .back-to-car { padding: 8px 12px; font-size: 12px; }
+.back-to-car { margin-top: 8px; }
+@media (max-width: 640px) {
+  .map-tools { top: 90px; right: 1rem; }
+}
+
+.btn-import { background: #ff69b4; color: var(--ink); }
+.gpx-import-status { color: #ffb8dc; font-size: 0.85rem; overflow-wrap: anywhere; max-width: 36rem; }
+.gpx-import-status p { margin: 0 0 0.65rem; }

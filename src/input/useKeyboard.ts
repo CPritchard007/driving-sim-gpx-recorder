@@ -55,6 +55,7 @@ export function useKeyboard() {
     }
 
     const onDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, button, [contenteditable="true"]')) return
       if (e.repeat) return
       if (
         ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(
@@ -67,9 +68,14 @@ export function useKeyboard() {
     }
     const onUp = (e: KeyboardEvent) => setKey(e.code, false)
 
+    const clear = () => { keys.current = { ...initial }; recordEdge.current = false }
+    window.addEventListener('blur', clear)
+    window.addEventListener('focusin', clear)
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
     return () => {
+      window.removeEventListener('blur', clear)
+      window.removeEventListener('focusin', clear)
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }

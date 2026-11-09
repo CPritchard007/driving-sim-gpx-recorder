@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { GamepadStatus } from '../input/useGamepad'
 
 type Props = {
@@ -9,6 +10,10 @@ type Props = {
   onToggleRecord: () => void
   onDownload: () => void
   onReset: () => void
+  onUpload: (file: File) => Promise<void>
+  importing: boolean
+  importedName: string | null
+  importError: string | null
 }
 
 function formatDistance(m: number): string {
@@ -25,7 +30,12 @@ export function Hud({
   onToggleRecord,
   onDownload,
   onReset,
+  onUpload,
+  importing,
+  importedName,
+  importError,
 }: Props) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const padLabel = gamepad.connected
     ? gamepad.id?.split('(')[0]?.trim() || 'Controller'
     : 'No controller — press any button on your pad'
@@ -53,6 +63,18 @@ export function Hud({
       </div>
 
       <div className="hud-actions">
+        <input ref={fileInputRef} type="file" accept=".gpx,application/gpx+xml" hidden
+          aria-label="Upload GPX file" disabled={recording || importing}
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) void onUpload(file)
+          }} />
+        <button type="button" className="btn btn-import" disabled={recording || importing}
+          title={recording ? 'Stop recording to upload a GPX file' : 'Move to the GPX start and highlight its route'}
+          onClick={() => fileInputRef.current?.click()}>
+          {importing ? 'Loading GPX…' : 'Upload GPX'}
+        </button>
         <button
           type="button"
           className={recording ? 'btn btn-stop' : 'btn btn-rec'}
@@ -78,6 +100,9 @@ export function Hud({
         </button>
       </div>
 
+      <div className="gpx-import-status" aria-live="polite">
+        {importError ? <p role="alert">{importError}</p> : importedName ? <p>Pink route: {importedName}</p> : null}
+      </div>
       <aside className="hud-legend">
         <p>
           <kbd>W</kbd> accelerate · <kbd>S</kbd> brake/reverse · <kbd>A</kbd>/
@@ -87,7 +112,7 @@ export function Hud({
           Pad: LS steer · RT accelerate · LT brake · A handbrake · RS look
           · Start record
         </p>
-        <p>Click the map to relocate (when not recording).</p>
+        <p>Drag the map to explore · Click to select · Drag the pin · Place to relocate.</p>
       </aside>
     </div>
   )

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   Map,
   NavigationControl,
+  Marker,
   type GeoJSONSource,
   type MapMouseEvent,
 } from 'mapbox-gl'
@@ -13,14 +14,18 @@ import {
   type DriveInput,
   type VehicleState,
 } from '../drive/arcadeVehicle'
+import type { ImportedGpx } from '../gpx/importer'
 import type { TrackPoint } from '../gpx/recorder'
 import { createCarLayer, type CarLayerApi } from './carLayer'
+import { LocationSearch, type Location } from '../ui/LocationSearch'
 
 /** Detroit — Windsor Tunnel (US portal / Jefferson Ave). */
 export const DEFAULT_START = { lat: 42.32856, lon: -83.04205, heading: 175 }
 
 const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12'
 const TRACK_SOURCE = 'gpx-track'
+const IMPORT_SOURCE = 'gpx-import'
+const emptyImport: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 const CHASE_PITCH = 62
 const CHASE_ZOOM = 18
 const TOKEN_STORAGE_KEY = 'gpx-drive.mapboxAccessToken'
@@ -50,6 +55,7 @@ type Props = {
   }
   recording: boolean
   trackPoints: TrackPoint[]
+  importedGpx: ImportedGpx | null
   onToggleRecord: () => void
   onVehicleSample: (lat: number, lon: number) => void
   onHudUpdate: (snap: HudSnapshot) => void
@@ -111,19 +117,50 @@ export function DrivingMap({
   readDriveInput,
   recording,
   trackPoints,
+  importedGpx,
   onToggleRecord,
   onVehicleSample,
   onHudUpdate,
   relocateToken,
   relocateTo,
 }: Props) {
+  const importedGpxRef = useRef(importedGpx)
+  importedGpxRef.current = importedGpx
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<Map | null>(null)
   const carRef = useRef<CarLayerApi | null>(null)
   const vehicleRef = useRef<VehicleState>(
     createVehicle(DEFAULT_START.lat, DEFAULT_START.lon, DEFAULT_START.heading),
   )
+  const [selection, setSelection] = useState<Location | null>(null)
+  const [browsing, setBrowsing] = useState(false)
+  const browsingRef = useRef(false)
+  const markerRef = useRef<Marker | null>(null)
   const recordingRef = useRef(recording)
+
+  const browse = () => {
+    browsingRef.current = true
+    setBrowsing(true)
+  }
+  const resume = () => {
+    mapRef.current?.stop()
+    browsingRef.current = false
+    setBrowsing(false)
+    setSelection(null)
+    const v = vehicleRef.current
+    mapRef.current?.jumpTo({ center: [v.lon, v.lat], zoom: CHASE_ZOOM, pitch: CHASE_PITCH, bearing: v.headingDeg })
+  }
+  const selectLocation = (location: Location) => {
+    browse()
+    setSelection(location)
+    mapRef.current?.flyTo({ center: [location.lon, location.lat], zoom: 16, pitch: 0, bearing: 0 })
+  }
+  const place = () => {
+    if (!selection || recordingRef.current) return
+    vehicleRef.current = createVehicle(selection.lat, selection.lon, vehicleRef.current.headingDeg)
+    onVehicleSampleRef.current(selection.lat, selection.lon)
+    resume()
+  }
   const lastTimeRef = useRef(0)
   const rafRef = useRef(0)
   const onToggleRecordRef = useRef(onToggleRecord)
@@ -173,6 +210,7 @@ export function DrivingMap({
       bearing: DEFAULT_START.heading,
       maxPitch: 80,
       antialias: true,
+      keyboard: false,
       accessToken: token,
     })
 
@@ -188,13 +226,12 @@ export function DrivingMap({
     })
     carRef.current = car
 
+    map.on('dragstart', browse)
+    map.on('rotatestart', (event) => { if ('originalEvent' in event && event.originalEvent) browse() })
+    map.on('pitchstart', (event) => { if ('originalEvent' in event && event.originalEvent) browse() })
     map.on('click', (e: MapMouseEvent) => {
-      if (recordingRef.current) return
-      vehicleRef.current = createVehicle(
-        e.lngLat.lat,
-        e.lngLat.lng,
-        vehicleRef.current.headingDeg,
-      )
+      browse()
+      setSelection({ lat: e.lngLat.lat, lon: e.lngLat.lng, name: 'Selected location' })
     })
 
     mapRef.current = map
@@ -204,6 +241,10 @@ export function DrivingMap({
       lookX: number,
       lookY: number,
     ) => {
+      // Let wheel, pinch, and button zooms finish without cancelling their animation.
+      // Follow remains enabled and resumes at the user's chosen zoom level.
+      if (map.isZooming()) return
+
       // Right stick look — GTA-style orbit around chase bearing/pitch
       const bearing = v.headingDeg + lookX * 55
       const pitch = Math.min(80, Math.max(35, CHASE_PITCH - lookY * 25))
@@ -249,13 +290,27 @@ export function DrivingMap({
       car.setPose({ lon: v.lon, lat: v.lat, headingDeg: v.headingDeg })
 
       frame += 1
-      if (frame % 2 === 0) chase(v, raw.lookX, raw.lookY)
+      if (frame % 2 === 0 && !browsingRef.current) chase(v, raw.lookX, raw.lookY)
 
       rafRef.current = requestAnimationFrame(loop)
     }
 
     map.on('style.load', () => {
       addBuildings(map)
+      map.addSource(IMPORT_SOURCE, { type: 'geojson', data: importedGpxRef.current?.data ?? emptyImport })
+      for (const [id, width, opacity] of [['gpx-import-area', 28, 0.22], ['gpx-import-line', 6, 0.95]] as const) {
+        map.addLayer({
+          id, type: 'line', source: IMPORT_SOURCE,
+          filter: ['==', '$type', 'LineString'],
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#ff69b4', 'line-width': width, 'line-opacity': opacity },
+        })
+      }
+      map.addLayer({
+        id: 'gpx-import-points', type: 'circle', source: IMPORT_SOURCE,
+        filter: ['==', '$type', 'Point'],
+        paint: { 'circle-color': '#ff69b4', 'circle-radius': 9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+      })
 
       if (!map.getSource(TRACK_SOURCE)) {
         map.addSource(TRACK_SOURCE, { type: 'geojson', data: emptyLine() })
@@ -288,11 +343,34 @@ export function DrivingMap({
     return () => {
       cancelAnimationFrame(rafRef.current)
       carRef.current = null
+      markerRef.current?.remove()
+      markerRef.current = null
       map.remove()
       mapRef.current = null
       lastTimeRef.current = 0
     }
   }, [token])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !selection) {
+      markerRef.current?.remove()
+      markerRef.current = null
+      return
+    }
+    if (!markerRef.current) {
+      const marker = new Marker({ color: '#e85d04', draggable: true })
+      marker.getElement().setAttribute('aria-label', 'Selected location. Drag to adjust.')
+      marker.on('dragend', () => {
+        const position = marker.getLngLat()
+        setSelection({ lat: position.lat, lon: position.lng, name: 'Selected location' })
+      })
+      markerRef.current = marker
+      marker.setLngLat([selection.lon, selection.lat]).addTo(map)
+    } else {
+      markerRef.current.setLngLat([selection.lon, selection.lat])
+    }
+  }, [selection])
 
   useEffect(() => {
     const map = mapRef.current
@@ -314,6 +392,11 @@ export function DrivingMap({
   }, [trackPoints])
 
   useEffect(() => {
+    const source = mapRef.current?.getSource(IMPORT_SOURCE) as GeoJSONSource | undefined
+    source?.setData(importedGpx?.data ?? emptyImport)
+  }, [importedGpx])
+
+  useEffect(() => {
     if (!relocateTo || relocateToken === 0) return
     if (recordingRef.current) return
     vehicleRef.current = createVehicle(
@@ -321,6 +404,8 @@ export function DrivingMap({
       relocateTo.lon,
       vehicleRef.current.headingDeg,
     )
+    onVehicleSampleRef.current(relocateTo.lat, relocateTo.lon)
+    resume()
   }, [relocateToken, relocateTo])
 
   if (!token) {
@@ -375,5 +460,22 @@ export function DrivingMap({
     )
   }
 
-  return <div className="map-root" ref={containerRef} />
+  return <>
+    <div className="map-root" ref={containerRef} />
+    <div className="map-tools">
+      <LocationSearch token={token} onSelect={selectLocation} />
+      {selection ? <section className="place-card" aria-label="Selected location">
+        <div className="place-card-heading">
+          <strong>{selection.name}</strong>
+          <button type="button" className="dismiss-selection" aria-label="Dismiss selection" onClick={() => setSelection(null)}>×</button>
+        </div>
+        <p>{selection.lat.toFixed(5)}, {selection.lon.toFixed(5)}</p>
+        <p>{recording ? 'Stop recording to place your car.' : 'Drag the pin to adjust your starting point.'}</p>
+        <div className="place-card-actions">
+          <button type="button" className="btn btn-rec" disabled={recording} onClick={place}>Place</button>
+          <button type="button" className="btn btn-ghost" onClick={resume}>Back to car</button>
+        </div>
+      </section> : browsing && <button type="button" className="btn btn-ghost back-to-car" onClick={resume}>Back to car</button>}
+    </div>
+  </>
 }
